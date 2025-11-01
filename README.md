@@ -4,9 +4,9 @@ CNC Feeds &amp; Speeds Calculator for DIY CNC enthusiasts
 
 # CNC Feeds & Speeds Calculator
 
-##########################################################################################################################
-# You are entirely responsible for using the information provided by this app; this is an application under development. #
-##########################################################################################################################
+
+# You are entirely responsible for using the information provided by this app; this is an application under development. 
+
 
 A web-based calculator for DIY CNC enthusiasts to determine optimal feeds and speeds based on machine specifications and cutting bits.
 
