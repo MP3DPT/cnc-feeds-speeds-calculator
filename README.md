@@ -6,7 +6,7 @@ CNC Feeds &amp; Speeds Calculator for DIY CNC enthusiasts
 
 A web-based calculator for DIY CNC enthusiasts to determine optimal feeds and speeds based on machine specifications and cutting bits.
 
-## 🚀 Use the app by Click Here
+## 🚀 Try the App
 [Try it here](https://MP3DPT.github.io/cnc-feeds-speeds-calculator/)
 
 ## ✨ Features
