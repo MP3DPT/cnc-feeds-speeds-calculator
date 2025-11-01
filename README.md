@@ -30,9 +30,14 @@ A web-based calculator for DIY CNC enthusiasts to determine optimal feeds and sp
 ## 💾 Data Storage
 All data is stored locally in your browser. Use Export/Import to backup or transfer between devices.
 
+
+## What else:
+There is an option that is important but I need time to see if i can integrate, if it is a compress bit, upcut downcut, etc, we will see.
+
 ## 📄 License
 MIT License - Free to use and modify
 
 ---
 
 Built for the DIY CNC community 🔧
+There are professional apps for this, but this is for new users with machines that are not commercial, I'm trying to create an app to serve as a starting point.
