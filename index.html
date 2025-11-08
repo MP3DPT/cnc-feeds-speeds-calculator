@@ -357,6 +357,7 @@
 
                 let rpmAdjusted = false;
                 let suggestedRPM = null;
+                const warnings = [];
 
                 // If conservative setting won't achieve minimum optimal chip load, reduce RPM
                 if (predictedConservativeChipLoad < minOptimalChipLoad) {
@@ -424,8 +425,6 @@
                 
                 const mrr = (conservativeFeedRate * depthOfCut * stepover) / 1000;
                 const maxMrr = (aggressiveFeedRate * depthOfCut * stepover) / 1000;
-
-                const warnings = [];
 
                 // CRITICAL chip load warning if severely suboptimal
                 if (conservativeChipLoad < mat.optimalChipLoadRange.min * 0.5) {
