@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNC Feeds & Speeds Calculator</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // SVG Icons
+        const Calculator = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+            </svg>
+        );
+
+        const Settings = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6"></path>
+            </svg>
+        );
+
+        const Database = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            </svg>
+        );
+
+        const Save = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            </svg>
+        );
+
+        const Trash2 = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+            </svg>
+        );
+
+        const Info = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="16" x2="12" y2="12"></line>
+                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+        );
+
+        const Plus = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        );
+
+        const Edit2 = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+            </svg>
+        );
+
+        const HelpCircle = ({ className = "w-6 h-6" }) => (
+            <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+        );
+
+        const Tooltip = ({ text, children }) => {
+            const [show, setShow] = useState(false);
+            
+            return React.createElement('div', { className: 'relative inline-block' },
+                React.createElement('span', {
+                    onMouseEnter: () => setShow(true),
+                    onMouseLeave: () => setShow(false),
+                    className: 'cursor-help'
+                }, children),
+                show && React.createElement('div', {
+                    className: 'absolute z-50 w-64 p-3 text-sm bg-gray-900 text-white rounded-lg shadow-lg -top-2 left-8'
+                },
+                    text,
+                    React.createElement('div', {
+                        className: 'absolute w-2 h-2 bg-gray-900 transform rotate-45 -left-1 top-4'
+                    })
+                )
+            );
+        };
+
+        // Storage wrapper
+        window.storage = {
+            async get(key) {
+                const value = localStorage.getItem(key);
+                return value ? { value } : null;
+            },
+            async set(key, value) {
+                localStorage.setItem(key, value);
+                return { key, value };
+            }
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('machines');
+            const [machines, setMachines] = useState([]);
+            const [bits, setBits] = useState([]);
+            const [selectedMachine, setSelectedMachine] = useState(null);
+            const [selectedBit, setSelectedBit] = useState(null);
+            const [material, setMaterial] = useState('softwood');
+            const [depthOfCut, setDepthOfCut] = useState(1);
+            const [results, setResults] = useState(null);
+            const [notification, setNotification] = useState(null);
+            const [showExportModal, setShowExportModal] = useState(false);
+            const [showImportModal, setShowImportModal] = useState(false);
+            const [exportedData, setExportedData] = useState('');
+
+            const materials = {
+                softwood: { 
+                    name: 'Softwood (Pine, Cedar)', 
+                    chipLoad: 0.010, // 0.010 inches per tooth
+                    depthFactor: 0.5, 
+                    rpmRange: { min: 10000, max: 14000, conservative: 10000, aggressive: 13000 },
+                    optimalChipLoadRange: { min: 0.20, max: 0.35 } // mm per tooth
+                },
+                hardwood: { 
+                    name: 'Hardwood (Oak, Maple)', 
+                    chipLoad: 0.008, 
+                    depthFactor: 0.4, 
+                    rpmRange: { min: 12000, max: 16000, conservative: 12000, aggressive: 15000 },
+                    optimalChipLoadRange: { min: 0.15, max: 0.30 }
+                },
+                plywood: { 
+                    name: 'Plywood', 
+                    chipLoad: 0.009, 
+                    depthFactor: 0.45, 
+                    rpmRange: { min: 14000, max: 18000, conservative: 15000, aggressive: 17000 },
+                    optimalChipLoadRange: { min: 0.18, max: 0.33 }
+                },
+                mdf: {
+                    name: 'MDF',
+                    chipLoad: 0.009,
+                    depthFactor: 0.5,
+                    rpmRange: { min: 15000, max: 18000, conservative: 15000, aggressive: 18000 },
+                    optimalChipLoadRange: { min: 0.15, max: 0.30 } // Fixed: MDF can handle similar to plywood
+                },
+                acrylic: { 
+                    name: 'Acrylic', 
+                    chipLoad: 0.005, 
+                    depthFactor: 0.3, 
+                    rpmRange: { min: 15000, max: 18000, conservative: 15000, aggressive: 18000 },
+                    optimalChipLoadRange: { min: 0.010, max: 0.040 } // FIXED: 0.01-0.04 range, 0.019 is acceptable
+                },
+                aluminum: { 
+                    name: 'Aluminum', 
+                    chipLoad: 0.0033, // inches per tooth - HIGH to compensate for machine factors = ~0.084mm base
+                    depthFactor: 0.2, 
+                    rpmRange: { min: 8000, max: 12000, conservative: 8000, aggressive: 11000 },
+                    optimalChipLoadRange: { min: 0.012, max: 0.040 } // 0.015-0.04 is ideal, 0.012 absolute minimum
+                },
+                foam: { 
+                    name: 'Foam', 
+                    chipLoad: 0.020, 
+                    depthFactor: 0.8, 
+                    rpmRange: { min: 18000, max: 24000, conservative: 18000, aggressive: 22000 },
+                    optimalChipLoadRange: { min: 0.40, max: 0.60 }
+                },
+            };
+
+            useEffect(() => {
+                loadData();
+            }, []);
+
+            const showNotification = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 4000);
+            };
+
+            const loadData = async () => {
+                try {
+                    const mr = await window.storage.get('cnc_machines');
+                    if (mr?.value) {
+                        const m = JSON.parse(mr.value);
+                        setMachines(m);
+                        if (m.length > 0) setSelectedMachine(m[0]);
+                    }
+                } catch (e) {}
+
+                try {
+                    const br = await window.storage.get('cnc_bits');
+                    if (br?.value) {
+                        const b = JSON.parse(br.value);
+                        setBits(b);
+                        if (b.length > 0) setSelectedBit(b[0]);
+                    }
+                } catch (e) {}
+            };
+
+            const saveMachinesData = async (updated) => {
+                try {
+                    await window.storage.set('cnc_machines', JSON.stringify(updated));
+                    setMachines(updated);
+                    showNotification('Machine saved!');
+                } catch (e) {
+                    showNotification('Error saving', 'error');
+                }
+            };
+
+            const saveBitsData = async (updated) => {
+                try {
+                    await window.storage.set('cnc_bits', JSON.stringify(updated));
+                    setBits(updated);
+                    showNotification('Bit saved!');
+                } catch (e) {
+                    showNotification('Error saving', 'error');
+                }
+            };
+
+            const addMachine = (m) => {
+                const newM = { ...m, id: Date.now() };
+                const updated = [...machines, newM];
+                saveMachinesData(updated);
+                setSelectedMachine(newM);
+            };
+
+            const updateMachine = (m) => {
+                const updated = machines.map(x => x.id === m.id ? m : x);
+                saveMachinesData(updated);
+                if (selectedMachine?.id === m.id) setSelectedMachine(m);
+            };
+
+            const deleteMachine = (id) => {
+                const updated = machines.filter(m => m.id !== id);
+                saveMachinesData(updated);
+                if (selectedMachine?.id === id) {
+                    setSelectedMachine(updated.length > 0 ? updated[0] : null);
+                }
+            };
+
+            const addBit = (b) => {
+                const newB = { ...b, id: Date.now() };
+                const updated = [...bits, newB];
+                saveBitsData(updated);
+                setSelectedBit(newB);
+            };
+
+            const updateBit = (b) => {
+                const updated = bits.map(x => x.id === b.id ? b : x);
+                saveBitsData(updated);
+                if (selectedBit?.id === b.id) setSelectedBit(b);
+            };
+
+            const deleteBit = (id) => {
+                const updated = bits.filter(b => b.id !== id);
+                saveBitsData(updated);
+                if (selectedBit?.id === id) {
+                    setSelectedBit(updated.length > 0 ? updated[0] : null);
+                }
+            };
+
+            const exportData = () => {
+                const data = { machines, bits, exportDate: new Date().toISOString(), version: '1.0' };
+                setExportedData(JSON.stringify(data, null, 2));
+                setShowExportModal(true);
+            };
+
+            const handleImport = (json) => {
+                try {
+                    const data = JSON.parse(json);
+                    if (data.machines) saveMachinesData(data.machines);
+                    if (data.bits) saveBitsData(data.bits);
+                    showNotification('Imported successfully!');
+                    setShowImportModal(false);
+                } catch (e) {
+                    showNotification('Invalid JSON', 'error');
+                }
+            };
+
+            const calculate = () => {
+                if (!selectedMachine || !selectedBit) return;
+
+                const mat = materials[material];
+                
+                // Use material-specific RPM ranges (CNC routers work with fixed RPM ranges, not SFM)
+                let conservativeRPM = Math.min(mat.rpmRange.conservative, selectedMachine.maxRPM);
+                let aggressiveRPM = Math.min(mat.rpmRange.aggressive, selectedMachine.maxRPM);
+
+                // Chip load in inches per tooth (industry standard)
+                // Convert to mm: chip load is given in inches, convert for our mm-based system
+                let chipLoadInches = mat.chipLoad;
+                
+                // Adjust chip load based on bit size
+                if (selectedBit.diameter < 3) chipLoadInches *= 0.7;
+                else if (selectedBit.diameter < 6) chipLoadInches *= 0.85;
+                
+                // Convert chip load from inches to mm
+                const chipLoadMM = chipLoadInches * 25.4;
+                
+                // Calculate feed rates using: Feed Rate = RPM × Flutes × Chip Load
+                // Feed Rate = RPM × Number of Flutes × Chip Load (mm/min)
+                let conservativeFeedRate = conservativeRPM * selectedBit.flutes * chipLoadMM;
+                let aggressiveFeedRate = aggressiveRPM * selectedBit.flutes * chipLoadMM;
+                
+                // Apply machine capability factors
+                const rigidityFactor = selectedMachine.rigidity === 'high' ? 1.0 : 
+                                      selectedMachine.rigidity === 'medium' ? 0.75 : 0.5;
+                
+                let driveSystemFactor = 1.0;
+                const driveSystem = selectedMachine.driveSystem || 'ballscrew';
+                if (driveSystem === 'leadscrew') {
+                    driveSystemFactor = 0.6;
+                } else if (driveSystem === 'ballscrew') {
+                    driveSystemFactor = 1.0;
+                } else if (driveSystem === 'belt') {
+                    driveSystemFactor = 1.2;
+                } else if (driveSystem === 'rack') {
+                    driveSystemFactor = 1.3;
+                }
+                
+                let motorSizeFactor = 1.0;
+                const motorSize = selectedMachine.motorSize || 'nema23';
+                if (motorSize === 'nema17') {
+                    motorSizeFactor = 0.6;
+                } else if (motorSize === 'nema23') {
+                    motorSizeFactor = 1.0;
+                } else if (motorSize === 'nema34') {
+                    motorSizeFactor = 1.3;
+                }
+
+                // Calculate combined machine capability factor
+                const machineFactor = rigidityFactor * driveSystemFactor * motorSizeFactor;
+
+                // ADAPTIVE RPM SELECTION for feed-limited machines
+                // Check if machine can achieve optimal chip load at recommended RPM
+                const minOptimalChipLoad = mat.optimalChipLoadRange.min;
+                const predictedConservativeFeed = Math.min(
+                    conservativeFeedRate * machineFactor,
+                    selectedMachine.maxFeedRate
+                );
+                const predictedAggressiveFeed = Math.min(
+                    aggressiveFeedRate * machineFactor,
+                    selectedMachine.maxFeedRate
+                );
+
+                const predictedConservativeChipLoad = predictedConservativeFeed / (conservativeRPM * selectedBit.flutes);
+                const predictedAggressiveChipLoad = predictedAggressiveFeed / (aggressiveRPM * selectedBit.flutes);
+
+                let rpmAdjusted = false;
+                let suggestedRPM = null;
+                const warnings = [];
+
+                // If conservative setting won't achieve minimum optimal chip load, reduce RPM
+                if (predictedConservativeChipLoad < minOptimalChipLoad) {
+                    // Calculate optimal RPM for this machine's feed rate capability
+                    const optimalRPM = selectedMachine.maxFeedRate / (selectedBit.flutes * minOptimalChipLoad);
+                    const machineMinRPM = selectedMachine.minRPM || 1000;
+
+                    // Check if optimal RPM is achievable on this machine
+                    if (optimalRPM >= machineMinRPM && optimalRPM < conservativeRPM) {
+                        // Machine CAN achieve optimal RPM
+                        suggestedRPM = Math.round(optimalRPM);
+                        conservativeRPM = suggestedRPM;
+                        aggressiveRPM = Math.round(Math.min(suggestedRPM * 1.3, selectedMachine.maxRPM));
+                        rpmAdjusted = true;
+
+                        // When RPM is adjusted, use max feed rate to achieve optimal chip load
+                        conservativeFeedRate = selectedMachine.maxFeedRate;
+                        aggressiveFeedRate = selectedMachine.maxFeedRate;
+                    } else if (optimalRPM < machineMinRPM) {
+                        // Machine CANNOT go low enough - use minimum RPM and reduce feed
+                        conservativeRPM = machineMinRPM;
+                        aggressiveRPM = Math.round(Math.min(machineMinRPM * 1.2, selectedMachine.maxRPM));
+                        rpmAdjusted = true;
+
+                        // Calculate best achievable feed rate at minimum RPM
+                        const bestFeedRate = machineMinRPM * selectedBit.flutes * minOptimalChipLoad;
+                        conservativeFeedRate = Math.min(bestFeedRate, selectedMachine.maxFeedRate);
+                        aggressiveFeedRate = conservativeFeedRate;
+
+                        // Add warning that optimal can't be achieved
+                        warnings.unshift(`⚠️ Router minimum RPM (${machineMinRPM}) prevents optimal chip load. Reduced feed to ${Math.round(conservativeFeedRate)} mm/min. Consider: larger bit, lower flute count, or VFD spindle for lower RPM capability.`);
+                    }
+                }
+
+                // Apply machine factors to feed rates ONLY if RPM was NOT adjusted
+                if (!rpmAdjusted) {
+                    conservativeFeedRate = conservativeFeedRate * machineFactor;
+                    aggressiveFeedRate = aggressiveFeedRate * machineFactor;
+                }
+                
+                // Cap at machine maximum
+                conservativeFeedRate = Math.min(conservativeFeedRate, selectedMachine.maxFeedRate);
+                aggressiveFeedRate = Math.min(aggressiveFeedRate, selectedMachine.maxFeedRate);
+                
+                // Calculate actual chip loads achieved (in mm)
+                const conservativeChipLoad = conservativeFeedRate / (conservativeRPM * selectedBit.flutes);
+                const aggressiveChipLoad = aggressiveFeedRate / (aggressiveRPM * selectedBit.flutes);
+                
+                // Determine chip load quality
+                const getChipLoadQuality = (chipLoad) => {
+                    if (chipLoad < mat.optimalChipLoadRange.min) {
+                        return { status: 'low', message: '⚠️ Chip load too low - Risk of rubbing/heat buildup', color: 'orange' };
+                    } else if (chipLoad > mat.optimalChipLoadRange.max) {
+                        return { status: 'high', message: '⚠️ Chip load too high - Risk of motor overload', color: 'red' };
+                    } else {
+                        return { status: 'optimal', message: '✓ Optimal chip load - Making chips, not dust!', color: 'green' };
+                    }
+                };
+                
+                const conservativeQuality = getChipLoadQuality(conservativeChipLoad);
+                const aggressiveQuality = getChipLoadQuality(aggressiveChipLoad);
+                
+                const stepover = selectedBit.diameter * 0.45;
+                const maxDepth = selectedBit.diameter * mat.depthFactor;
+                
+                const mrr = (conservativeFeedRate * depthOfCut * stepover) / 1000;
+                const maxMrr = (aggressiveFeedRate * depthOfCut * stepover) / 1000;
+
+                // CRITICAL chip load warning if severely suboptimal
+                if (conservativeChipLoad < mat.optimalChipLoadRange.min * 0.5) {
+                    const percentBelow = Math.round((1 - conservativeChipLoad / mat.optimalChipLoadRange.min) * 100);
+                    const recommendedRPM = Math.round(selectedMachine.maxFeedRate / (selectedBit.flutes * mat.optimalChipLoadRange.min));
+                    warnings.unshift(`🚨 CRITICAL: Chip load is ${percentBelow}% below optimal! Tool will rub instead of cut. Try ${recommendedRPM} RPM with ${selectedMachine.maxFeedRate} mm/min feed for better results.`);
+                }
+
+                // Add RPM adjustment notification
+                if (rpmAdjusted && suggestedRPM) {
+                    warnings.unshift(`✨ RPM automatically adjusted to ${suggestedRPM} to achieve optimal chip load with your machine's feed rate limit.`);
+                }
+
+                if (depthOfCut > maxDepth) warnings.push(`⚠️ Depth exceeds recommended maximum (${maxDepth.toFixed(2)}mm for ${mat.name})`);
+                if (selectedMachine.rigidity === 'low') warnings.push('💡 Use shallow passes');
+                if (conservativeRPM >= selectedMachine.maxRPM) warnings.push(`ℹ️ Material recommends ${mat.rpmRange.conservative} RPM, but machine max is ${selectedMachine.maxRPM} RPM`);
+                
+                // Add material-specific warnings
+                if (material === 'aluminum') {
+                    warnings.push('🔧 CRITICAL: Use lubrication or air blast! Aluminum will weld to bit without cooling.');
+                }
+                if (material === 'acrylic') {
+                    warnings.push('💨 TIP: Use air blast for chip evacuation. Prevents melting and re-welding.');
+                }
+                
+                const atMachineLimit = conservativeFeedRate >= selectedMachine.maxFeedRate * 0.95;
+
+                setResults({
+                    rpm: conservativeRPM,
+                    aggressiveRPM: aggressiveRPM,
+                    maxRPM: selectedMachine.maxRPM,
+                    recommendedRPMRange: `${mat.rpmRange.min}-${mat.rpmRange.max}`,
+                    feedRate: Math.round(conservativeFeedRate),
+                    maxPotentialFeedRate: Math.round(aggressiveFeedRate),
+                    chipLoad: conservativeChipLoad.toFixed(3),
+                    maxChipLoad: aggressiveChipLoad.toFixed(3),
+                    conservativeQuality: conservativeQuality,
+                    aggressiveQuality: aggressiveQuality,
+                    stepover: stepover.toFixed(2),
+                    maxDepth: maxDepth.toFixed(2),
+                    mrr: mrr.toFixed(2),
+                    maxMrr: maxMrr.toFixed(2),
+                    atMachineLimit: atMachineLimit,
+                    warnings
+                });
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="text-center mb-8 pt-6">
+                            <h1 className="text-5xl font-bold text-white mb-2 flex items-center justify-center gap-3">
+                                <Calculator className="w-12 h-12" />
+                                CNC Feeds & Speeds Calculator
+                            </h1>
+                            <p className="text-blue-200 text-lg">For DIY CNC Enthusiasts</p>
+                        </div>
+
+                        {notification && (
+                            <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
+                                notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+                            } text-white font-semibold`}>
+                                {notification.message}
+                            </div>
+                        )}
+
+                        {showExportModal && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
+                                    <h2 className="text-2xl font-bold mb-4">Export Data</h2>
+                                    <textarea
+                                        value={exportedData}
+                                        readOnly
+                                        onClick={(e) => e.target.select()}
+                                        className="w-full h-64 p-3 border-2 rounded font-mono text-sm"
+                                    />
+                                    <div className="mt-4 flex gap-3">
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(exportedData);
+                                                showNotification('Copied!');
+                                            }}
+                                            className="px-6 py-2 bg-blue-600 text-white rounded-lg"
+                                        >
+                                            Copy
+                                        </button>
+                                        <button
+                                            onClick={() => setShowExportModal(false)}
+                                            className="px-6 py-2 bg-gray-400 text-white rounded-lg"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {showImportModal && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
+                                    <h2 className="text-2xl font-bold mb-4">Import Data</h2>
+                                    <textarea
+                                        id="importBox"
+                                        placeholder="Paste JSON here..."
+                                        className="w-full h-64 p-3 border-2 rounded font-mono text-sm"
+                                    />
+                                    <div className="mt-4 flex gap-3">
+                                        <button
+                                            onClick={() => handleImport(document.getElementById('importBox').value)}
+                                            className="px-6 py-2 bg-green-600 text-white rounded-lg"
+                                        >
+                                            Import
+                                        </button>
+                                        <button
+                                            onClick={() => setShowImportModal(false)}
+                                            className="px-6 py-2 bg-gray-400 text-white rounded-lg"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 mb-6 flex-wrap">
+                            <button
+                                onClick={() => setActiveTab('calculator')}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-semibold ${
+                                    activeTab === 'calculator' ? 'bg-white text-blue-900' : 'bg-blue-800 text-white'
+                                }`}
+                            >
+                                <Calculator className="w-5 h-5" />
+                                Calculator
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('machines')}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-semibold ${
+                                    activeTab === 'machines' ? 'bg-white text-blue-900' : 'bg-blue-800 text-white'
+                                }`}
+                            >
+                                <Settings className="w-5 h-5" />
+                                Machines
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('bits')}
+                                className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-semibold ${
+                                    activeTab === 'bits' ? 'bg-white text-blue-900' : 'bg-blue-800 text-white'
+                                }`}
+                            >
+                                <Database className="w-5 h-5" />
+                                Bits
+                            </button>
+                            
+                            <div className="ml-auto flex gap-2">
+                                <button
+                                    onClick={exportData}
+                                    className="px-4 py-3 bg-purple-600 text-white rounded-lg flex items-center gap-2"
+                                >
+                                    <Save className="w-5 h-5" />
+                                    Export
+                                </button>
+                                <button
+                                    onClick={() => setShowImportModal(true)}
+                                    className="px-4 py-3 bg-orange-600 text-white rounded-lg flex items-center gap-2"
+                                >
+                                    <Database className="w-5 h-5" />
+                                    Import
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow-2xl p-8">
+                            {activeTab === 'calculator' && (
+                                <CalculatorTab
+                                    machines={machines}
+                                    bits={bits}
+                                    selectedMachine={selectedMachine}
+                                    setSelectedMachine={setSelectedMachine}
+                                    selectedBit={selectedBit}
+                                    setSelectedBit={setSelectedBit}
+                                    material={material}
+                                    setMaterial={setMaterial}
+                                    materials={materials}
+                                    depthOfCut={depthOfCut}
+                                    setDepthOfCut={setDepthOfCut}
+                                    calculate={calculate}
+                                    results={results}
+                                />
+                            )}
+                            {activeTab === 'machines' && (
+                                <MachinesTab
+                                    machines={machines}
+                                    addMachine={addMachine}
+                                    updateMachine={updateMachine}
+                                    deleteMachine={deleteMachine}
+                                />
+                            )}
+                            {activeTab === 'bits' && (
+                                <BitsTab
+                                    bits={bits}
+                                    addBit={addBit}
+                                    updateBit={updateBit}
+                                    deleteBit={deleteBit}
+                                />
+                            )}
+                        </div>
+                    </div>
+                    
+                    <footer className="bg-slate-900 text-white py-6 mt-8">
+                        <div className="max-w-6xl mx-auto px-4 text-center">
+                            <img 
+                                src="https://raw.githubusercontent.com/MP3DPT/cnc-feeds-speeds-calculator/8098a528ce345e3f3e72a898a67e545a24ac6d37/logo.png" 
+                                alt="MP3D Logo" 
+                                className="h-16 mx-auto mb-3"
+                            />
+                            <p className="text-sm mb-2">
+                                Developed by <strong>MP3Dpt</strong> | <a href="mailto:mp3dpt@gmail.com" className="text-blue-400 hover:text-blue-300 underline">mp3dpt@gmail.com</a>
+                            </p>
+                            <p className="text-xs text-gray-400">
+                                Version 1.0 - Work in Progress
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const CalculatorTab = ({ machines, bits, selectedMachine, setSelectedMachine, selectedBit, setSelectedBit, material, setMaterial, materials, depthOfCut, setDepthOfCut, calculate, results }) => {
+            if (machines.length === 0 || bits.length === 0) {
+                return (
+                    <div className="text-center py-12">
+                        <Info className="w-16 h-16 mx-auto text-blue-500 mb-4" />
+                        <h3 className="text-2xl font-bold mb-2">Get Started</h3>
+                        <p className="text-gray-600">Add at least one machine and one bit to calculate.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block font-semibold mb-2">Machine</label>
+                            <select
+                                value={selectedMachine?.id || ''}
+                                onChange={(e) => setSelectedMachine(machines.find(m => m.id === parseInt(e.target.value)))}
+                                className="w-full px-4 py-3 border-2 rounded-lg"
+                            >
+                                {machines.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block font-semibold mb-2">Bit</label>
+                            <select
+                                value={selectedBit?.id || ''}
+                                onChange={(e) => setSelectedBit(bits.find(b => b.id === parseInt(e.target.value)))}
+                                className="w-full px-4 py-3 border-2 rounded-lg"
+                            >
+                                {bits.map(b => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block font-semibold mb-2">Material</label>
+                        <select
+                            value={material}
+                            onChange={(e) => setMaterial(e.target.value)}
+                            className="w-full px-4 py-3 border-2 rounded-lg"
+                        >
+                            {Object.entries(materials).map(([k, m]) => (
+                                <option key={k} value={k}>{m.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block font-semibold mb-2">Depth of Cut: {depthOfCut}mm</label>
+                        <input
+                            type="range"
+                            min="0.5"
+                            max="10"
+                            step="0.5"
+                            value={depthOfCut}
+                            onChange={(e) => setDepthOfCut(parseFloat(e.target.value))}
+                            className="w-full"
+                        />
+                    </div>
+
+                    <button
+                        onClick={calculate}
+                        className="w-full py-4 bg-blue-600 text-white text-lg font-bold rounded-lg"
+                    >
+                        Calculate
+                    </button>
+
+                    {results && (
+                        <div className="space-y-4">
+                            <div className="p-6 bg-blue-50 rounded-lg border-2 border-blue-200">
+                                <h3 className="text-2xl font-bold mb-2 text-blue-800">🎯 Recommended Settings (Better for Limited Machines)</h3>
+                                <p className="text-sm text-gray-600 mb-4">Lower RPM with proper chip load - Makes chips, not dust!</p>
+                                <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">Recommended RPM</div>
+                                        <div className="text-3xl font-bold text-blue-600">{results.rpm}</div>
+                                        <div className="text-xs text-gray-500 mt-1">Material range: {results.recommendedRPMRange} RPM</div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">Feed Rate</div>
+                                        <div className="text-3xl font-bold text-green-600">{results.feedRate}</div>
+                                        <div className="text-sm">mm/min</div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">Chip Load</div>
+                                        <div className={`text-3xl font-bold text-${results.conservativeQuality.color}-600`}>{results.chipLoad}</div>
+                                        <div className="text-sm">mm/tooth</div>
+                                    </div>
+                                </div>
+                                <div className={`mt-4 p-3 bg-${results.conservativeQuality.color}-100 rounded-lg border border-${results.conservativeQuality.color}-300`}>
+                                    <p className={`text-sm text-${results.conservativeQuality.color}-800 font-semibold`}>
+                                        {results.conservativeQuality.message}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="p-6 bg-orange-50 rounded-lg border-2 border-orange-200">
+                                <h3 className="text-2xl font-bold mb-2 text-orange-800">⚡ High RPM Settings (Less Efficient)</h3>
+                                <p className="text-sm text-gray-600 mb-4">Higher RPM, lower chip load - Less efficient, only if you need faster spindle speed</p>
+                                <div className="grid md:grid-cols-3 gap-4">
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">RPM</div>
+                                        <div className="text-3xl font-bold text-blue-600">{results.aggressiveRPM}</div>
+                                        <div className="text-xs text-gray-500 mt-1">Material range: {results.recommendedRPMRange} RPM</div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">Feed Rate</div>
+                                        <div className="text-3xl font-bold text-orange-600">{results.maxPotentialFeedRate}</div>
+                                        <div className="text-sm">mm/min</div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg">
+                                        <div className="text-sm text-gray-600">Chip Load</div>
+                                        <div className={`text-3xl font-bold text-${results.aggressiveQuality.color}-600`}>{results.maxChipLoad}</div>
+                                        <div className="text-sm">mm/tooth</div>
+                                    </div>
+                                </div>
+                                <div className={`mt-4 p-3 bg-${results.aggressiveQuality.color}-100 rounded-lg border border-${results.aggressiveQuality.color}-300`}>
+                                    <p className={`text-sm text-${results.aggressiveQuality.color}-800 font-semibold`}>
+                                        {results.aggressiveQuality.message}
+                                    </p>
+                                    {results.aggressiveQuality.status === 'optimal' && (
+                                        <p className="text-xs text-gray-700 mt-2">
+                                            ℹ️ Note: While this chip load is acceptable, the lower RPM setting above is more efficient for most DIY machines.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+                                <h4 className="font-bold mb-2 flex items-center gap-2">
+                                    <Info className="w-5 h-5 text-purple-600" />
+                                    Understanding Chip Load - Make Chips, Not Dust!
+                                </h4>
+                                <div className="text-sm text-gray-700 space-y-2">
+                                    <p><strong>🎯 Goal:</strong> You want to CUT material, not RUB against it. Proper chip load ensures actual cutting.</p>
+                                    <p><strong>⚠️ Too Low (Rubbing):</strong> High RPM + Low feed rate = Tool rubs instead of cuts → Heat buildup, tool dullness, burning, poor finish. Sounds like high-pitched squealing.</p>
+                                    <p><strong>✓ Optimal (Cutting):</strong> Balanced RPM + Feed rate = Clean chips evacuate heat → Long tool life, good finish. Sounds steady and consistent.</p>
+                                    <p><strong>⚠️ Too High (Overload):</strong> Low RPM + High feed rate = Excessive force → Motor stalling, chatter, poor finish. Sounds like grinding or bogging down.</p>
+                                    <p className="pt-2 border-t border-purple-200"><strong>💡 For Limited Machines:</strong> If your max feed rate is low (like 1000 mm/min), use LOWER RPM to achieve better chip load. Don't automatically chase high RPM!</p>
+                                </div>
+                            </div>
+
+                            <div className="p-4 bg-gray-50 rounded-lg">
+                                <h4 className="font-semibold mb-2">Additional Parameters & Listen to Your Machine</h4>
+                                <div className="grid md:grid-cols-2 gap-3 text-sm mb-3">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Stepover:</span>
+                                        <span className="font-semibold">{results.stepover} mm (45% of bit diameter)</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Max Depth per Pass:</span>
+                                        <span className="font-semibold">{results.maxDepth} mm</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Material Removal (Recommended):</span>
+                                        <span className="font-semibold">{results.mrr} cm³/min</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-600">Material Removal (High RPM):</span>
+                                        <span className="font-semibold">{results.maxMrr} cm³/min</span>
+                                    </div>
+                                </div>
+                                <div className="mt-3 p-3 bg-yellow-50 rounded border border-yellow-200">
+                                    <p className="text-xs text-yellow-800">
+                                        <strong>🎧 Listen to Your Machine:</strong><br/>
+                                        <strong>High-pitched squealing?</strong> → Rubbing! Lower RPM or increase feed rate.<br/>
+                                        <strong>Steady consistent sound?</strong> → Perfect! You're making chips.<br/>
+                                        <strong>Chattering or bogging?</strong> → Overload! Reduce feed rate or increase RPM.
+                                    </p>
+                                </div>
+                                <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
+                                    <p className="text-xs text-blue-800">
+                                        <strong>💡 Tip:</strong> Max depth varies by material hardness. 
+                                        Harder materials (aluminum, hardwood) require shallower cuts. 
+                                        Multiple shallow passes are safer than one deep cut.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {results.warnings.length > 0 && (
+                                <div className="p-4 bg-yellow-50 rounded-lg border-2 border-yellow-200">
+                                    <h4 className="font-semibold mb-2">⚠️ Warnings</h4>
+                                    {results.warnings.map((w, i) => (
+                                        <div key={i} className="text-yellow-800">{w}</div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const MachinesTab = ({ machines, addMachine, updateMachine, deleteMachine }) => {
+            const [showForm, setShowForm] = useState(false);
+            const [editing, setEditing] = useState(null);
+            const [form, setForm] = useState({
+                name: '', minRPM: 10000, maxRPM: 24000, maxFeedRate: 5000,
+                rigidity: 'medium', spindleType: 'router', motorType: 'stepper',
+                motorSize: 'nema23', driveSystem: 'ballscrew'
+            });
+
+            const handleSubmit = () => {
+                if (!form.name) return;
+                if (editing) {
+                    updateMachine({ ...form, id: editing.id });
+                    setEditing(null);
+                } else {
+                    addMachine(form);
+                }
+                setForm({ name: '', minRPM: 10000, maxRPM: 24000, maxFeedRate: 3000,
+                         rigidity: 'medium', spindleType: 'router', motorType: 'stepper',
+                         motorSize: 'nema23', driveSystem: 'ballscrew' });
+                setShowForm(false);
+            };
+
+            const handleEdit = (m) => {
+                setForm({
+                    name: m.name,
+                    minRPM: m.minRPM || 10000,
+                    maxRPM: m.maxRPM,
+                    maxFeedRate: m.maxFeedRate,
+                    rigidity: m.rigidity,
+                    spindleType: m.spindleType,
+                    motorType: m.motorType,
+                    motorSize: m.motorSize || 'nema23',
+                    driveSystem: m.driveSystem || 'ballscrew'
+                });
+                setEditing(m);
+                setShowForm(true);
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between mb-6">
+                        <h2 className="text-2xl font-bold">My Machines</h2>
+                        <button
+                            onClick={() => setShowForm(!showForm)}
+                            className="px-6 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2"
+                        >
+                            <Plus className="w-5 h-5" />
+                            {showForm ? 'Cancel' : 'Add Machine'}
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="mb-6 p-6 bg-gray-50 rounded-lg">
+                            <h3 className="font-bold mb-4">{editing ? 'Edit' : 'Add'} Machine</h3>
+                            <div className="grid md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Machine Name *
+                                        <Tooltip text="A descriptive name for your CNC machine (e.g., 'My Workshop Router CNC', 'Garage CNC v2')">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        placeholder="My DIY CNC Router"
+                                        value={form.name}
+                                        onChange={(e) => setForm({...form, name: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Spindle Min RPM
+                                        <Tooltip text="Minimum RPM your spindle can run at. Routers typically 10,000-12,000. Variable spindles may go lower (3,000-6,000). VFD spindles can go very low (1,000+).">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="10000"
+                                        value={form.minRPM}
+                                        onChange={(e) => setForm({...form, minRPM: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        {form.spindleType === 'router' && 'Routers: typically 10,000-12,000 min'}
+                                        {form.spindleType === 'spindle' && 'VFD Spindle: typically 6,000-8,000 min'}
+                                        {form.spindleType === 'dremel' && 'Dremel: typically 5,000-10,000 min'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Spindle Max RPM
+                                        <Tooltip text="Maximum RPM your spindle can reach. Check your spindle/router specs or nameplate. Common: Router 10,000-30,000, Spindle 6,000-24,000 RPM">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="30000"
+                                        value={form.maxRPM}
+                                        onChange={(e) => setForm({...form, maxRPM: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Max Feed Rate (mm/min)
+                                        <Tooltip text="Maximum speed your machine can move without losing steps. Test by jogging at different speeds. Auto-filled based on motor/drive selection.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="1500"
+                                        value={form.maxFeedRate}
+                                        onChange={(e) => setForm({...form, maxFeedRate: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        {form.motorSize === 'nema17' && form.driveSystem === 'leadscrew' && 'Suggested: 1000-1500 mm/min'}
+                                        {form.motorSize === 'nema17' && form.driveSystem === 'ballscrew' && 'Suggested: 2000-3000 mm/min'}
+                                        {form.motorSize === 'nema23' && form.driveSystem === 'leadscrew' && 'Suggested: 2000-3000 mm/min'}
+                                        {form.motorSize === 'nema23' && form.driveSystem === 'ballscrew' && 'Suggested: 4000-6000 mm/min'}
+                                        {form.motorSize === 'nema34' && 'Suggested: 6000-10000 mm/min'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Machine Rigidity
+                                        <Tooltip text="Low: Flexible frame, wobbles. Medium: Standard DIY with some flex. High: Very solid frame, minimal vibration (steel/aluminum)">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.rigidity}
+                                        onChange={(e) => setForm({...form, rigidity: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="low">Low (Flexible frame)</option>
+                                        <option value="medium">Medium (Standard DIY)</option>
+                                        <option value="high">High (Solid/Commercial)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Spindle Type
+                                        <Tooltip text="Router: Hand router mounted (common DIY). Spindle: Dedicated CNC spindle with speed control. Dremel: Rotary tool.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.spindleType}
+                                        onChange={(e) => setForm({...form, spindleType: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="router">Router</option>
+                                        <option value="spindle">Spindle</option>
+                                        <option value="dremel">Dremel/Rotary Tool</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Motor Type
+                                        <Tooltip text="Stepper: Most common in DIY CNCs, hold position well. Servo: Faster, more expensive, better for high speeds.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.motorType}
+                                        onChange={(e) => setForm({...form, motorType: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="stepper">Stepper</option>
+                                        <option value="servo">Servo</option>
+                                        <option value="hybrid">Hybrid Stepper</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Motor Size
+                                        <Tooltip text="NEMA 17: Small motors, slower speeds (common in 3018, hobby CNCs). NEMA 23: Medium motors, good speeds (most DIY CNCs). NEMA 34: Large motors, high speeds.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.motorSize}
+                                        onChange={(e) => {
+                                            const size = e.target.value;
+                                            setForm({...form, motorSize: size});
+                                            // Auto-suggest feed rate based on motor size
+                                            if (size === 'nema17' && form.driveSystem === 'leadscrew') {
+                                                setForm(prev => ({...prev, motorSize: size, maxFeedRate: 1500}));
+                                            } else if (size === 'nema23') {
+                                                setForm(prev => ({...prev, motorSize: size, maxFeedRate: 4000}));
+                                            } else if (size === 'nema34') {
+                                                setForm(prev => ({...prev, motorSize: size, maxFeedRate: 8000}));
+                                            }
+                                        }}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="nema17">NEMA 17 (Small - 3018, hobby)</option>
+                                        <option value="nema23">NEMA 23 (Medium - standard DIY)</option>
+                                        <option value="nema34">NEMA 34 (Large - heavy duty)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Drive System
+                                        <Tooltip text="Lead Screw (TR8): Cheap, slower, more friction. Common: 1000-2500mm/min. Ball Screw: Faster, smoother, less friction. Common: 3000-8000mm/min. Belt: Fast but less rigid.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.driveSystem}
+                                        onChange={(e) => {
+                                            const drive = e.target.value;
+                                            setForm({...form, driveSystem: drive});
+                                            // Auto-suggest feed rate
+                                            if (drive === 'leadscrew' && form.motorSize === 'nema17') {
+                                                setForm(prev => ({...prev, driveSystem: drive, maxFeedRate: 1500}));
+                                            } else if (drive === 'leadscrew' && form.motorSize === 'nema23') {
+                                                setForm(prev => ({...prev, driveSystem: drive, maxFeedRate: 2500}));
+                                            } else if (drive === 'ballscrew') {
+                                                setForm(prev => ({...prev, driveSystem: drive, maxFeedRate: 5000}));
+                                            } else if (drive === 'belt') {
+                                                setForm(prev => ({...prev, driveSystem: drive, maxFeedRate: 6000}));
+                                            }
+                                        }}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="leadscrew">Lead Screw (TR8, ACME)</option>
+                                        <option value="ballscrew">Ball Screw</option>
+                                        <option value="belt">Belt Drive</option>
+                                        <option value="rack">Rack and Pinion</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="mt-4 flex gap-3">
+                                <button
+                                    onClick={handleSubmit}
+                                    className="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold"
+                                >
+                                    {editing ? 'Update' : 'Save'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowForm(false);
+                                        setEditing(null);
+                                    }}
+                                    className="px-8 py-3 bg-gray-400 text-white rounded-lg"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                        {machines.map(m => (
+                            <div key={m.id} className="p-4 bg-blue-50 rounded-lg border-2">
+                                <div className="flex justify-between items-start mb-3">
+                                    <h3 className="text-xl font-bold">{m.name}</h3>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleEdit(m)} className="text-blue-500">
+                                            <Edit2 className="w-5 h-5" />
+                                        </button>
+                                        <button onClick={() => deleteMachine(m.id)} className="text-red-500">
+                                            <Trash2 className="w-5 h-5" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="text-sm">
+                                    <div>RPM Range: {m.minRPM || 10000} - {m.maxRPM}</div>
+                                    <div>Max Feed: {m.maxFeedRate} mm/min</div>
+                                    <div>Rigidity: {m.rigidity}</div>
+                                    {m.motorSize && <div>Motor: {m.motorSize.toUpperCase()} {m.motorType}</div>}
+                                    {m.driveSystem && <div>Drive: {m.driveSystem === 'leadscrew' ? 'Lead Screw' :
+                                                                  m.driveSystem === 'ballscrew' ? 'Ball Screw' :
+                                                                  m.driveSystem === 'belt' ? 'Belt Drive' :
+                                                                  m.driveSystem === 'rack' ? 'Rack & Pinion' : m.driveSystem}</div>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {machines.length === 0 && !showForm && (
+                        <div className="text-center py-12 text-gray-500">
+                            <Settings className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                            <p>No machines yet. Click "Add Machine" to get started.</p>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const BitsTab = ({ bits, addBit, updateBit, deleteBit }) => {
+            const [showForm, setShowForm] = useState(false);
+            const [editing, setEditing] = useState(null);
+            const [form, setForm] = useState({
+                name: '', diameter: 6, flutes: 2, length: 25, type: 'endmill', material: 'hss'
+            });
+
+            const handleSubmit = () => {
+                if (!form.name) return;
+                if (editing) {
+                    updateBit({ ...form, id: editing.id });
+                    setEditing(null);
+                } else {
+                    addBit(form);
+                }
+                setForm({ name: '', diameter: 6, flutes: 2, length: 25, type: 'endmill', material: 'hss' });
+                setShowForm(false);
+            };
+
+            const handleEdit = (b) => {
+                setForm(b);
+                setEditing(b);
+                setShowForm(true);
+            };
+
+            return (
+                <div>
+                    <div className="flex justify-between mb-6">
+                        <h2 className="text-2xl font-bold">Cutting Bits</h2>
+                        <button
+                            onClick={() => setShowForm(!showForm)}
+                            className="px-6 py-2 bg-green-600 text-white rounded-lg flex items-center gap-2"
+                        >
+                            <Plus className="w-5 h-5" />
+                            {showForm ? 'Cancel' : 'Add Bit'}
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="mb-6 p-6 bg-gray-50 rounded-lg">
+                            <h3 className="font-bold mb-4">{editing ? 'Edit' : 'Add'} Cutting Bit</h3>
+                            <div className="grid md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Bit Name/Description *
+                                        <Tooltip text="Give your bit a descriptive name (e.g., '6mm endmill from AliExpress', '1/4 inch upcut bit')">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        placeholder="6mm 2-flute endmill"
+                                        value={form.name}
+                                        onChange={(e) => setForm({...form, name: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Diameter (mm)
+                                        <Tooltip text="The diameter of your cutting bit. Measure with calipers or check packaging. Common: 3mm, 6mm, 8mm, 1/4 inch (6.35mm)">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        placeholder="6"
+                                        value={form.diameter}
+                                        onChange={(e) => setForm({...form, diameter: parseFloat(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Number of Flutes
+                                        <Tooltip text="Count the cutting edges on your bit. More flutes = smoother cut. Common: 1 flute (soft materials), 2 flutes (general), 4 flutes (finishing)">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="2"
+                                        value={form.flutes}
+                                        onChange={(e) => setForm({...form, flutes: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Cutting Length (mm)
+                                        <Tooltip text="The length of the cutting edge (flutes), not total bit length. Determines max depth of cut. Usually on packaging.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="25"
+                                        value={form.length}
+                                        onChange={(e) => setForm({...form, length: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Bit Type
+                                        <Tooltip text="End Mill: Flat bottom. Ball Nose: Rounded for 3D. V-Bit: Angled for engraving. Surfacing: Wide for flattening. Drill: For holes.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.type}
+                                        onChange={(e) => setForm({...form, type: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="endmill">End Mill</option>
+                                        <option value="ballnose">Ball Nose</option>
+                                        <option value="vbit">V-Bit</option>
+                                        <option value="surfacing">Surfacing</option>
+                                        <option value="drill">Drill</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Material
+                                        <Tooltip text="HSS: Cheap, good for wood/plastic. Carbide: Lasts longer, harder materials. Coated: Carbide with coating for longest life.">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <select
+                                        value={form.material}
+                                        onChange={(e) => setForm({...form, material: e.target.value})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    >
+                                        <option value="hss">HSS (High Speed Steel)</option>
+                                        <option value="carbide">Carbide</option>
+                                        <option value="coated">Coated Carbide</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="mt-4 flex gap-3">
+                                <button
+                                    onClick={handleSubmit}
+                                    className="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold"
+                                >
+                                    {editing ? 'Update' : 'Save'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setShowForm(false);
+                                        setEditing(null);
+                                    }}
+                                    className="px-8 py-3 bg-gray-400 text-white rounded-lg"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="grid md:grid-cols-3 gap-4">
+                        {bits.map(b => (
+                            <div key={b.id} className="p-4 bg-green-50 rounded-lg border-2">
+                                <div className="flex justify-between items-start mb-3">
+                                    <h3 className="text-lg font-bold">{b.name}</h3>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleEdit(b)} className="text-blue-500">
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => deleteBit(b.id)} className="text-red-500">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="text-sm space-y-1">
+                                    <div>Diameter: {b.diameter}mm</div>
+                                    <div>Flutes: {b.flutes}</div>
+                                    <div>Length: {b.length}mm</div>
+                                    <div>Type: {b.type}</div>
+                                    <div>Material: {b.material.toUpperCase()}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {bits.length === 0 && !showForm && (
+                        <div className="text-center py-12 text-gray-500">
+                            <Database className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                            <p>No bits yet. Click "Add Bit" to get started.</p>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
