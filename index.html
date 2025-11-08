@@ -362,19 +362,32 @@
                 if (predictedConservativeChipLoad < minOptimalChipLoad) {
                     // Calculate optimal RPM for this machine's feed rate capability
                     const optimalRPM = selectedMachine.maxFeedRate / (selectedBit.flutes * minOptimalChipLoad);
+                    const machineMinRPM = selectedMachine.minRPM || 1000;
 
-                    // Don't go below 1000 RPM for safety
-                    if (optimalRPM >= 1000 && optimalRPM < conservativeRPM) {
+                    // Check if optimal RPM is achievable on this machine
+                    if (optimalRPM >= machineMinRPM && optimalRPM < conservativeRPM) {
+                        // Machine CAN achieve optimal RPM
                         suggestedRPM = Math.round(optimalRPM);
                         conservativeRPM = suggestedRPM;
-                        // Also adjust aggressive RPM proportionally
                         aggressiveRPM = Math.round(Math.min(suggestedRPM * 1.3, selectedMachine.maxRPM));
                         rpmAdjusted = true;
 
                         // When RPM is adjusted, use max feed rate to achieve optimal chip load
-                        // Don't apply machine factors - that's why we reduced RPM!
                         conservativeFeedRate = selectedMachine.maxFeedRate;
                         aggressiveFeedRate = selectedMachine.maxFeedRate;
+                    } else if (optimalRPM < machineMinRPM) {
+                        // Machine CANNOT go low enough - use minimum RPM and reduce feed
+                        conservativeRPM = machineMinRPM;
+                        aggressiveRPM = Math.round(Math.min(machineMinRPM * 1.2, selectedMachine.maxRPM));
+                        rpmAdjusted = true;
+
+                        // Calculate best achievable feed rate at minimum RPM
+                        const bestFeedRate = machineMinRPM * selectedBit.flutes * minOptimalChipLoad;
+                        conservativeFeedRate = Math.min(bestFeedRate, selectedMachine.maxFeedRate);
+                        aggressiveFeedRate = conservativeFeedRate;
+
+                        // Add warning that optimal can't be achieved
+                        warnings.unshift(`⚠️ Router minimum RPM (${machineMinRPM}) prevents optimal chip load. Reduced feed to ${Math.round(conservativeFeedRate)} mm/min. Consider: larger bit, lower flute count, or VFD spindle for lower RPM capability.`);
                     }
                 }
 
@@ -843,7 +856,7 @@
             const [showForm, setShowForm] = useState(false);
             const [editing, setEditing] = useState(null);
             const [form, setForm] = useState({
-                name: '', maxRPM: 24000, maxFeedRate: 5000,
+                name: '', minRPM: 10000, maxRPM: 24000, maxFeedRate: 5000,
                 rigidity: 'medium', spindleType: 'router', motorType: 'stepper',
                 motorSize: 'nema23', driveSystem: 'ballscrew'
             });
@@ -856,14 +869,16 @@
                 } else {
                     addMachine(form);
                 }
-                setForm({ name: '', maxRPM: 24000, optimalRPM: 18000, maxFeedRate: 3000,
-                         rigidity: 'medium', spindleType: 'router', motorType: 'stepper' });
+                setForm({ name: '', minRPM: 10000, maxRPM: 24000, maxFeedRate: 3000,
+                         rigidity: 'medium', spindleType: 'router', motorType: 'stepper',
+                         motorSize: 'nema23', driveSystem: 'ballscrew' });
                 setShowForm(false);
             };
 
             const handleEdit = (m) => {
                 setForm({
                     name: m.name,
+                    minRPM: m.minRPM || 10000,
                     maxRPM: m.maxRPM,
                     maxFeedRate: m.maxFeedRate,
                     rigidity: m.rigidity,
@@ -909,6 +924,26 @@
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                        Spindle Min RPM
+                                        <Tooltip text="Minimum RPM your spindle can run at. Routers typically 10,000-12,000. Variable spindles may go lower (3,000-6,000). VFD spindles can go very low (1,000+).">
+                                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                                        </Tooltip>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        placeholder="10000"
+                                        value={form.minRPM}
+                                        onChange={(e) => setForm({...form, minRPM: parseInt(e.target.value)})}
+                                        className="w-full px-4 py-2 border-2 rounded-lg"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        {form.spindleType === 'router' && 'Routers: typically 10,000-12,000 min'}
+                                        {form.spindleType === 'spindle' && 'VFD Spindle: typically 6,000-8,000 min'}
+                                        {form.spindleType === 'dremel' && 'Dremel: typically 5,000-10,000 min'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
                                         Spindle Max RPM
                                         <Tooltip text="Maximum RPM your spindle can reach. Check your spindle/router specs or nameplate. Common: Router 10,000-30,000, Spindle 6,000-24,000 RPM">
                                             <HelpCircle className="w-4 h-4 text-gray-400" />
@@ -916,7 +951,7 @@
                                     </label>
                                     <input
                                         type="number"
-                                        placeholder="24000"
+                                        placeholder="30000"
                                         value={form.maxRPM}
                                         onChange={(e) => setForm({...form, maxRPM: parseInt(e.target.value)})}
                                         className="w-full px-4 py-2 border-2 rounded-lg"
@@ -1090,11 +1125,11 @@
                                     </div>
                                 </div>
                                 <div className="text-sm">
-                                    <div>Max RPM: {m.maxRPM}</div>
+                                    <div>RPM Range: {m.minRPM || 10000} - {m.maxRPM}</div>
                                     <div>Max Feed: {m.maxFeedRate} mm/min</div>
                                     <div>Rigidity: {m.rigidity}</div>
                                     {m.motorSize && <div>Motor: {m.motorSize.toUpperCase()} {m.motorType}</div>}
-                                    {m.driveSystem && <div>Drive: {m.driveSystem === 'leadscrew' ? 'Lead Screw' : 
+                                    {m.driveSystem && <div>Drive: {m.driveSystem === 'leadscrew' ? 'Lead Screw' :
                                                                   m.driveSystem === 'ballscrew' ? 'Ball Screw' :
                                                                   m.driveSystem === 'belt' ? 'Belt Drive' :
                                                                   m.driveSystem === 'rack' ? 'Rack & Pinion' : m.driveSystem}</div>}
