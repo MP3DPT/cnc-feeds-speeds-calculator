@@ -371,15 +371,18 @@
                         aggressiveRPM = Math.round(Math.min(suggestedRPM * 1.3, selectedMachine.maxRPM));
                         rpmAdjusted = true;
 
-                        // Recalculate feed rates with new RPM
-                        conservativeFeedRate = conservativeRPM * selectedBit.flutes * chipLoadMM;
-                        aggressiveFeedRate = aggressiveRPM * selectedBit.flutes * chipLoadMM;
+                        // When RPM is adjusted, use max feed rate to achieve optimal chip load
+                        // Don't apply machine factors - that's why we reduced RPM!
+                        conservativeFeedRate = selectedMachine.maxFeedRate;
+                        aggressiveFeedRate = selectedMachine.maxFeedRate;
                     }
                 }
 
-                // Apply all factors to feed rates
-                conservativeFeedRate = conservativeFeedRate * machineFactor;
-                aggressiveFeedRate = aggressiveFeedRate * machineFactor;
+                // Apply machine factors to feed rates ONLY if RPM was NOT adjusted
+                if (!rpmAdjusted) {
+                    conservativeFeedRate = conservativeFeedRate * machineFactor;
+                    aggressiveFeedRate = aggressiveFeedRate * machineFactor;
+                }
                 
                 // Cap at machine maximum
                 conservativeFeedRate = Math.min(conservativeFeedRate, selectedMachine.maxFeedRate);
